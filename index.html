@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dynamisch Weekmenu</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #f0f2f5;
+            --text-color: #1c1e21;
+            --border-color: #e0e0e0;
+            --green-button-color: #28a745;
+            --calorie-over-color: #e74c3c;
+            --calorie-warning-color: #f39c12;
+            --calorie-perfect-color: #2ecc71;
+            --panel-background: white;
+            --text-muted: #777;
+            --border-radius-md: 12px;
+            --border-radius-sm: 8px;
+            --fab-size: 56px; /* Floating action button size */
+            --day-nav-width: 60px; /* Breedte van de rechter dagnavigatie */
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            overscroll-behavior-y: contain;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overflow-x: hidden; /* Voorkom horizontale scroll door fixed elementen */
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 500px;
+            margin: 0 auto;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            position: relative; /* Belangrijk voor fixed children */
+            padding-right: calc(var(--day-nav-width) + 10px); /* Ruimte voor rechter dagnavigatie */
+            box-sizing: border-box;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px 15px;
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 990; /* Onder rechter dagnav, boven content */
+        }
+
+        /* NIEUWE Verticale Dag Navigatie Rechts */
+        .vertical-day-navigation {
+            position: fixed;
+            top: 70px; /* Onder de header */
+            right: 10px; /* Marge van de rechterkant */
+            width: var(--day-nav-width);
+            display: flex;
+            flex-direction: column;
+            gap: 8px; /* Ruimte tussen knoppen */
+            z-index: 1000; /* Boven de content */
+            max-height: calc(100vh - 70px - var(--fab-size) - 30px); /* Stop boven FAB */
+            overflow-y: auto; /* Scrollbaar indien nodig */
+        }
+        .vertical-day-navigation button {
+            width: 100%;
+            padding: 12px 5px; /* Meer padding verticaal */
+            border: none;
+            background-color: #e9ecef;
+            color: var(--primary-color);
+            border-radius: var(--border-radius-sm);
+            font-size: 0.9em;
+            font-weight: 600; /* Iets dikker */
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s, transform 0.1s, box-shadow 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .vertical-day-navigation button.active {
+            background-color: var(--primary-color);
+            color: white;
+            box-shadow: 0 2px 5px rgba(0,123,255,0.3);
+        }
+        .vertical-day-navigation button.day-drag-over {
+            transform: scale(1.05); /* Subtiele scale */
+            box-shadow: 0 0 8px var(--green-button-color);
+            border: 2px solid var(--green-button-color);
+        }
+
+
+        .main-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 15px;
+            /* padding-right: calc(var(--day-nav-width) + 25px); /* Extra padding rechts voor de nav */
+        }
+
+        .day-schedule { display: none; }
+        .day-schedule.active { display: block; }
+
+        .current-day-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start; /* Align items to the top */
+            margin-bottom: 15px;
+        }
+        .current-day-header .day-info h2 {
+            font-size: 1.6em;
+            color: #333;
+            margin: 0 0 5px 0; /* Ruimte onder titel */
+        }
+        .settings-button-container {
+            margin-left: auto; /* Duw naar rechts */
+        }
+        .open-settings-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em; /* Groter icoon */
+            cursor: pointer;
+            color: var(--text-muted);
+            padding: 5px;
+        }
+        .daily-calorie-summary {
+            text-align: left; /* Links voor onder de titel */
+            font-size: 0.9em;
+        }
+        .daily-calorie-summary .goal-display,
+        .daily-calorie-summary .total-calories-display,
+        .daily-calorie-summary .total-price-display {
+            display: block; /* Elk op een nieuwe regel */
+            margin-bottom: 2px;
+            color: var(--text-muted);
+        }
+         .daily-calorie-summary .total-calories-display span,
+         .daily-calorie-summary .total-price-display span {
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        .daily-calorie-summary #calorieStatusIndicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 5px;
+            background-color: var(--border-color);
+        }
+        #calorieStatusIndicator.calories-perfect { background-color: var(--calorie-perfect-color); }
+        #calorieStatusIndicator.calories-warning { background-color: var(--calorie-warning-color); }
+        #calorieStatusIndicator.calories-over { background-color: var(--calorie-over-color); }
+
+
+        .meal-section {
+            background-color: var(--panel-background);
+            margin-bottom: 20px;
+            border-radius: var(--border-radius-md);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 15px;
+        }
+        .meal-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 8px;
+        }
+        .meal-section-header h3 {
+            font-size: 1.1em;
+            color: #333;
+            margin: 0;
+        }
+        .meal-section-header .meal-total-calories {
+            font-size: 0.85em;
+            color: var(--text-muted);
+            background-color: #f8f9fa;
+            padding: 3px 7px;
+            border-radius: 6px;
+        }
+
+        .meal-list {
+            min-height: 50px;
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+        .meal-item {
+            background-color: #f8f9fa;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: var(--border-radius-sm);
+            border: 1px solid #dee2e6;
+            font-size: 0.9em;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.2s;
+        }
+        .meal-item:last-child { margin-bottom: 0; }
+
+        .item-content {
+            display: flex;
+            align-items: center;
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+         .item-content .emoji {
+            margin-right: 10px;
+            font-size: 1.2em;
+            min-width: 25px;
+            text-align: center;
+        }
+
+        .meal-item .item-info-calories, .product-item .item-info-details {
+            font-size: 0.8em;
+            color: #6c757d;
+            text-align: right;
+            min-width: 60px;
+        }
+        .meal-item .quantity-controls {
+            display: flex;
+            align-items: center;
+            margin-left: 10px;
+        }
+        .meal-item .quantity-input {
+            width: 40px;
+            text-align: center;
+            padding: 6px; /* Groter voor touch */
+            font-size: 0.9em;
+            border: 1px solid var(--border-color);
+            border-radius: 6px; /* Ronder */
+            margin: 0 5px;
+        }
+        .meal-item .quantity-input::-webkit-outer-spin-button,
+        .meal-item .quantity-input::-webkit-inner-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        .meal-item .quantity-unit {
+            font-size: 0.75em;
+            color: var(--text-muted);
+        }
+
+        .sortable-ghost { opacity: 0.4; background-color: #cce5ff !important; }
+        .sortable-drag { box-shadow: 0 4px 8px rgba(0,0,0,0.2); transform: scale(1.02); }
+
+        .product-library-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--green-button-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: var(--fab-size);
+            height: var(--fab-size);
+            font-size: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            cursor: pointer;
+            z-index: 1001; /* Boven paneel als gesloten, onder als open */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+         .product-library-toggle:hover { transform: scale(1.1); }
+
+        .product-library-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-width: 500px;
+            margin: 0 auto;
+            height: 0;
+            background-color: #fff;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+            transition: height 0.35s cubic-bezier(0.25, 0.8, 0.25, 1),
+                        opacity 0.35s,
+                        visibility 0.35s;
+            z-index: 1000;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            visibility: hidden;
+        }
+        .product-library-panel.open {
+            height: 70vh;
+            opacity: 1;
+            visibility: visible;
+        }
+        /* Als item gesleept wordt, verberg paneel */
+        .product-library-panel.dragging-item-active {
+            height: 0 !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            transition: height 0.2s ease-out, opacity 0.2s, visibility 0.2s;
+        }
+
+        .product-library-header {
+            padding: 15px;
+            font-size: 1.1em;
+            font-weight: 500;
+            border-bottom: 1px solid #e9ecef;
+            text-align: center;
+            color: var(--primary-color);
+            flex-shrink: 0;
+        }
+        .product-list-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px 15px 15px 15px;
+        }
+        .product-item {
+            background-color: #e9f5ff;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: var(--border-radius-sm);
+            border: 1px solid #b8daff;
+            font-size: 0.9em;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+        }
+        .product-item .item-info-details {
+            font-size: 0.75em;
+            color: #0056b3;
+            text-align: right;
+            min-width: 100px;
+        }
+
+        .panel-actions {
+            padding: 15px;
+            border-top: 1px solid #e9ecef;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .panel-actions button {
+            padding: 12px; /* Groter voor touch */
+            border: none;
+            border-radius: var(--border-radius-sm);
+            font-size: 0.95em; /* Iets groter */
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #openAddProductModalBtn { background-color: var(--primary-color); color: white; }
+        #resetDataBtn { background-color: var(--calorie-over-color); color: white; }
+
+        body.dragging, body.dragging * { cursor: grabbing !important; }
+
+        /* Modals Styling */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.show { display: flex; }
+
+        .modal-content {
+            background-color: #fff;
+            padding: 20px 25px;
+            border-radius: var(--border-radius-md);
+            width: 90%;
+            max-width: 380px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .modal-content h2 { margin-top: 0; color: var(--primary-color); margin-bottom: 20px; text-align: center; }
+        .modal-content label { display: block; margin-bottom: 5px; font-size: 0.9em; font-weight: 500; }
+        .modal-content input, .modal-content button[type="submit"] {
+            width: 100%;
+            padding: 12px; /* Grotere inputs/buttons */
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            box-sizing: border-box;
+            font-size: 1em; /* Grotere font */
+        }
+        .modal-content button[type="submit"] {
+            background-color: var(--green-button-color);
+            color: white;
+            border: none;
+        }
+        .close-modal-btn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 1.8em; /* Groter close icon */
+            font-weight: bold;
+            color: #aaa;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 5px; /* Touch area */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <header>Mijn Weekmenu ✨</header>
+
+        <!-- Verticale Dag Navigatie (Rechts) -->
+        <div class="vertical-day-navigation" id="dayNav">
+            <!-- Knoppen worden hier door JS ingevoegd -->
+        </div>
+
+        <div class="main-content" id="mainContent">
+            <!-- Dagplanningen worden hier door JS ingevoegd -->
+            <!-- De .current-day-header en .meal-section elementen komen hier per dag -->
+        </div>
+
+        <button class="product-library-toggle" id="toggleLibraryBtn">🛒</button>
+
+        <div class="product-library-panel" id="productLibraryPanel">
+            <div class="product-library-header">Product Bibliotheek</div>
+            <div class="product-list-container">
+                <ul id="productSourceList" class="meal-list">
+                    <!-- Producten door JS -->
+                </ul>
+            </div>
+            <div class="panel-actions">
+                <button id="openAddProductModalBtn">Nieuw Product Toevoegen</button>
+                <button id="resetDataBtn">Reset Alle Data</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal voor Nieuw Product Toevoegen -->
+    <div id="addProductModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal-btn" id="closeAddProductModalBtn">×</button>
+            <h2>Nieuw Product</h2>
+            <form id="addProductForm">
+                <label for="newProductName">Naam:</label>
+                <input type="text" id="newProductName" required>
+
+                <label for="newProductCalories">Calorieën (per eenheid):</label>
+                <input type="number" id="newProductCalories" min="0" required>
+
+                <label for="newProductUnit">Eenheid (bv. 100g, stuk):</label>
+                <input type="text" id="newProductUnit" placeholder="100g, stuk" required>
+                
+                <label for="newProductPrice">Prijs (€ per verpakking):</label>
+                <input type="number" id="newProductPrice" step="0.01" min="0" required>
+
+                <label for="newProductPackageSize">Verpakkingsgrootte (bv. 800g, 12st):</label>
+                <input type="text" id="newProductPackageSize" placeholder="800g, 12st" required>
+
+                <label for="newProductEmoji">Emoji (optioneel):</label>
+                <input type="text" id="newProductEmoji" maxlength="2">
+
+                <button type="submit">Toevoegen aan Bibliotheek</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal voor Dag Instellingen (Calorie Doel) -->
+    <div id="daySettingsModal" class="modal">
+        <div class="modal-content">
+            <button class="close-modal-btn" id="closeDaySettingsModalBtn">×</button>
+            <h2 id="daySettingsModalTitle">Instellingen voor Maandag</h2>
+            <form id="daySettingsForm">
+                <label for="modalCalorieGoalInput">Calorie Doel:</label>
+                <input type="number" id="modalCalorieGoalInput" min="0" required>
+                <button type="submit">Opslaan</button>
+            </form>
+        </div>
+    </div>
+
+
+<script>
+    // --- DATA ---
+    let appState = {
+        days: [
+            { id: 'dag1', name: 'Ma', fullName: 'Maandag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag2', name: 'Di', fullName: 'Dinsdag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag3', name: 'Wo', fullName: 'Woensdag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag4', name: 'Do', fullName: 'Donderdag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag5', name: 'Vr', fullName: 'Vrijdag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag6', name: 'Za', fullName: 'Zaterdag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } },
+            { id: 'dag7', name: 'Zo', fullName: 'Zondag', calorieGoal: 2000, meals: { ontbijt: [], lunch: [], diner: [], snacks: [] } }
+        ],
+        productDatabase: [
+            { id: 'prod1', name: 'AH Halfvolle kwark', caloriesPerUnit: 50, unit: '100g', pricePerPackage: 1.65, packageSize: '250g', emoji: '🥛' },
+            { id: 'prod2', name: 'Banaan', caloriesPerUnit: 90, unit: 'stuk', pricePerPackage: 0.30, packageSize: '1stuk', emoji: '🍌' },
+            { id: 'prod3', name: 'AH Kipfilet (vers)', caloriesPerUnit: 114, unit: '100g', pricePerPackage: 9.49, packageSize: '800g', emoji: '🐔' },
+            { id: 'prod4', name: 'Jumbo Aardappelen', caloriesPerUnit: 80, unit: '100g', pricePerPackage: 4.39, packageSize: '3kg', emoji: '🥔' },
+            { id: 'prod5', name: 'AH Broccoli', caloriesPerUnit: 29, unit: '100g', pricePerPackage: 1.49, packageSize: '450g', emoji: '🥦' },
+            { id: 'prod6', name: 'Jumbo Basmati Rijst (onb.)', caloriesPerUnit: 355, unit: '100g', pricePerPackage: 2.49, packageSize: '1kg', emoji: '🍚' },
+            { id: 'prod7', name: 'AH Scharreleieren', caloriesPerUnit: 70, unit: 'stuk', pricePerPackage: 2.99, packageSize: '12st', emoji: '🥚' },
+        ],
+        currentDayId: 'dag1',
+        draggedMealItemData: null,
+        dragToDayTimeout: null,
+        isDraggingProduct: false // Nieuwe state voor bibliotheek-drag
+    };
+
+    // --- DOM Elementen ---
+    const dayNavContainer = document.getElementById('dayNav'); // Nu de verticale nav
+    const mainContentContainer = document.getElementById('mainContent');
+    const productSourceListElement = document.getElementById('productSourceList');
+    const toggleLibraryBtn = document.getElementById('toggleLibraryBtn');
+    const productLibraryPanel = document.getElementById('productLibraryPanel');
+    const openAddProductModalBtn = document.getElementById('openAddProductModalBtn');
+    const resetDataBtn = document.getElementById('resetDataBtn');
+    const addProductModal = document.getElementById('addProductModal');
+    const closeAddProductModalBtn = document.getElementById('closeAddProductModalBtn');
+    const addProductForm = document.getElementById('addProductForm');
+    // Day Settings Modal
+    const daySettingsModal = document.getElementById('daySettingsModal');
+    const closeDaySettingsModalBtn = document.getElementById('closeDaySettingsModalBtn');
+    const daySettingsModalTitle = document.getElementById('daySettingsModalTitle');
+    const daySettingsForm = document.getElementById('daySettingsForm');
+    const modalCalorieGoalInput = document.getElementById('modalCalorieGoalInput');
+
+    // --- HULPFUNCTIES ---
+    function generateUniqueId(prefix = 'item') { /* ... (onveranderd) ... */ return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`; }
+    function getProductById(productId) { /* ... (onveranderd) ... */ return appState.productDatabase.find(p => p.id === productId); }
+    function getDayById(dayId) { /* ... (onveranderd) ... */ return appState.days.find(d => d.id === dayId); }
+
+    function parseUnitValue(sizeString) { // Hulpfunctie om bv "250g" of "3kg" naar grammen te converteren
+        if (!sizeString) return 0;
+        const match = sizeString.toLowerCase().match(/(\d+[\.,]?\d*)\s*(kg|g|stuk|st|ml|l)/);
+        if (match) {
+            let value = parseFloat(match[1].replace(',', '.'));
+            const unit = match[2];
+            if (unit === 'kg') value *= 1000;
+            if (unit === 'l') value *= 1000; // ml
+            return value;
+        }
+        return parseFloat(sizeString.replace(',', '.')) || 0; // Fallback voor alleen getal (bv. stuks)
+    }
+
+    function calculateItemCalories(item) {
+        const product = getProductById(item.productId);
+        if (!product) return 0;
+        // Als product unit '100g' is, en item quantity is in grammen
+        // Als product unit 'stuk' is, en item quantity is in stuks
+        return item.quantity * product.caloriesPerUnit / (product.unit === '100g' ? 100 : 1);
+    }
+     function calculateItemPrice(item) {
+        const product = getProductById(item.productId);
+        if (!product || !product.pricePerPackage || !product.packageSize) return 0;
+
+        const packageSizeNumeric = parseUnitValue(product.packageSize);
+        if (packageSizeNumeric === 0) return 0; // Kan prijs niet berekenen
+
+        let pricePerBaseUnit; // Prijs per gram of per stuk
+        if (product.unit === '100g') { // Product is per 100g, item quantity is in gram
+            pricePerBaseUnit = product.pricePerPackage / (packageSizeNumeric / 100) / 100; // Prijs per gram
+        } else { // Product is per stuk, item quantity is in stuks
+            pricePerBaseUnit = product.pricePerPackage / packageSizeNumeric; // Prijs per stuk
+        }
+        return item.quantity * pricePerBaseUnit;
+    }
+
+
+    // --- LOCAL STORAGE --- (onveranderd)
+    function saveData() { /* ... */ localStorage.setItem('weekMenuAppDynamicData_v4', JSON.stringify({ days: appState.days, productDatabase: appState.productDatabase })); }
+    function loadData() {
+        const savedData = localStorage.getItem('weekMenuAppDynamicData_v4');
+        if (savedData) {
+            const parsedData = JSON.parse(savedData);
+            appState.days = parsedData.days;
+            appState.productDatabase = parsedData.productDatabase || appState.productDatabase;
+            appState.days.forEach((day, index) => {
+                if (day.calorieGoal === undefined) day.calorieGoal = 2000;
+                if (day.fullName === undefined) day.fullName = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'][index];
+            });
+        }
+        appState.productDatabase.forEach((item, index) => {
+            if (!item.id) item.id = `prod_init_${index}_${Date.now()}`;
+        });
+    }
+
+
+    // --- RENDER FUNCTIES ---
+    function renderDayNavigation() { // Nu voor verticale navigatie
+        dayNavContainer.innerHTML = ''; // dayNavContainer is nu de vertical-day-navigation
+        appState.days.forEach(day => {
+            const button = document.createElement('button');
+            button.textContent = day.name;
+            button.dataset.dayId = day.id;
+            if (day.id === appState.currentDayId) {
+                button.classList.add('active');
+            }
+            button.addEventListener('click', () => {
+                appState.currentDayId = day.id;
+                renderApp();
+            });
+            button.addEventListener('dragenter', handleDayNavDragEnter);
+            button.addEventListener('dragleave', handleDayNavDragLeave);
+            button.addEventListener('dragover', (e) => e.preventDefault());
+            button.addEventListener('drop', handleDayNavDrop);
+            dayNavContainer.appendChild(button);
+        });
+    }
+
+    function renderDaySchedule(day) {
+        const dayScheduleDiv = document.createElement('div');
+        dayScheduleDiv.id = day.id;
+        dayScheduleDiv.classList.add('day-schedule');
+        if (day.id === appState.currentDayId) {
+            dayScheduleDiv.classList.add('active');
+        }
+
+        let dailyTotalCalories = 0;
+        let dailyTotalPrice = 0;
+        Object.values(day.meals).flat().forEach(item => {
+            dailyTotalCalories += calculateItemCalories(item);
+            dailyTotalPrice += calculateItemPrice(item);
+        });
+
+        dayScheduleDiv.innerHTML = `
+            <div class="current-day-header">
+                <div class="day-info">
+                    <h2>${day.fullName}</h2>
+                    <div class="daily-calorie-summary">
+                        <div class="goal-display">Doel: ${day.calorieGoal} kcal</div>
+                        <div class="total-calories-display">
+                            Totaal: <span id="currentDayTotalCalories">${Math.round(dailyTotalCalories)}</span> kcal
+                            <span class="calorie-status-indicator" id="calorieStatusIndicator"></span>
+                        </div>
+                        <div class="total-price-display">
+                            Prijs: <span id="currentDayTotalPrice">€${dailyTotalPrice.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-button-container">
+                    <button class="open-settings-btn" data-day-id="${day.id}" aria-label="Instellingen voor ${day.fullName}">⚙️</button>
+                </div>
+            </div>
+        `;
+        updateCalorieStatusIndicator(dailyTotalCalories, day.calorieGoal, dayScheduleDiv.querySelector('#calorieStatusIndicator'));
+
+        Object.keys(day.meals).forEach(mealType => {
+            const mealSectionDiv = document.createElement('div');
+            mealSectionDiv.classList.add('meal-section');
+            let mealTotalCalories = 0;
+            day.meals[mealType].forEach(item => mealTotalCalories += calculateItemCalories(item));
+            mealSectionDiv.innerHTML = `
+                <div class="meal-section-header">
+                    <h3>${mealType.charAt(0).toUpperCase() + mealType.slice(1)}</h3>
+                    <span class="meal-total-calories">${Math.round(mealTotalCalories)} kcal</span>
+                </div>`;
+            const ul = document.createElement('ul');
+            ul.id = `${day.id}-${mealType}-list`;
+            ul.classList.add('meal-list');
+            ul.dataset.dayId = day.id;
+            ul.dataset.mealType = mealType;
+            day.meals[mealType].forEach(item => {
+                ul.appendChild(createMealItemElement(item, day.id, mealType));
+            });
+            mealSectionDiv.appendChild(ul);
+            dayScheduleDiv.appendChild(mealSectionDiv);
+            new Sortable(ul, { /* ... (SortableJS config grotendeels onveranderd, maar onAdd moet evt. paneel sluiten) ... */
+                group: 'sharedMeals', animation: 150, ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+                onStart: handleMealItemDragStart,
+                onEnd: handleMealItemDragEnd,
+                onAdd: function (evt) {
+                    const itemEl = evt.item; const targetList = evt.to;
+                    const targetDayId = targetList.dataset.dayId; const targetMealType = targetList.dataset.mealType;
+                    if (itemEl.classList.contains('product-item')) {
+                        const productId = itemEl.dataset.productId; const product = getProductById(productId);
+                        if (product) {
+                            const newMealItem = { id: generateUniqueId('meal'), productId: product.id, quantity: product.unit === '100g' ? 100 : 1, };
+                            getDayById(targetDayId).meals[targetMealType].splice(evt.newDraggableIndex, 0, newMealItem);
+                            const newItemElement = createMealItemElement(newMealItem, targetDayId, targetMealType);
+                            targetList.replaceChild(newItemElement, itemEl);
+                        }
+                    } else {
+                        const itemId = itemEl.dataset.mealInstanceId; const sourceList = evt.from;
+                        const sourceDayId = sourceList.dataset.dayId; const sourceMealType = sourceList.dataset.mealType;
+                        const itemToMove = getDayById(sourceDayId).meals[sourceMealType].find(i => i.id === itemId);
+                        if (itemToMove) {
+                            getDayById(sourceDayId).meals[sourceMealType] = getDayById(sourceDayId).meals[sourceMealType].filter(i => i.id !== itemId);
+                            getDayById(targetDayId).meals[targetMealType].splice(evt.newDraggableIndex, 0, itemToMove);
+                        }
+                    }
+                    renderApp(); saveData();
+                },
+                onUpdate: function (evt) { /* ... (onveranderd) ... */
+                    const itemList = evt.from; const dayId = itemList.dataset.dayId; const mealType = itemList.dataset.mealType;
+                    const itemsArray = Array.from(itemList.children).map(li => { const itemId = li.dataset.mealInstanceId; return getDayById(dayId).meals[mealType].find(i => i.id === itemId); }).filter(Boolean);
+                    getDayById(dayId).meals[mealType] = itemsArray; renderApp(); saveData();
+                }
+            });
+        });
+        mainContentContainer.appendChild(dayScheduleDiv);
+        dayScheduleDiv.querySelector('.open-settings-btn').addEventListener('click', (e) => {
+            const dayId = e.currentTarget.dataset.dayId;
+            openDaySettingsModal(dayId);
+        });
+    }
+
+    function createMealItemElement(itemData, dayId, mealType) { /* ... (Quantity input eventlistener blijft) ... */
+        const li = document.createElement('li');
+        li.classList.add('meal-item');
+        li.dataset.mealInstanceId = itemData.id; 
+        li.dataset.productId = itemData.productId; 
+        const product = getProductById(itemData.productId);
+        if (!product) { li.innerHTML = `<span class="item-content"><span class="emoji">❓</span><span class="name">Product niet gevonden</span></span>`; return li; }
+        const currentCalories = calculateItemCalories(itemData);
+        li.innerHTML = `
+            <div class="item-content">
+                <span class="emoji">${product.emoji || '🍽️'}</span>
+                <span class="name">${product.name}</span>
+            </div>
+            <span class="item-info-calories">${Math.round(currentCalories)} kcal</span>
+            <div class="quantity-controls">
+                <input type="number" class="quantity-input" value="${itemData.quantity}" 
+                       step="${product.unit === '100g' ? '10' : '0.1'}" 
+                       min="${product.unit === '100g' ? '10' : '0.1'}">
+                <span class="quantity-unit">${product.unit}</span>
+            </div>`;
+        const qtyInput = li.querySelector('.quantity-input');
+        qtyInput.addEventListener('change', (e) => {
+            const newQuantity = parseFloat(e.target.value);
+            const targetItem = getDayById(dayId).meals[mealType].find(i => i.id === itemData.id);
+            if (targetItem && !isNaN(newQuantity) && newQuantity > 0) { targetItem.quantity = newQuantity; renderApp(); saveData(); }
+            else if (targetItem && newQuantity <= 0) { getDayById(dayId).meals[mealType] = getDayById(dayId).meals[mealType].filter(i => i.id !== itemData.id); renderApp(); saveData(); }
+            else if (targetItem) { e.target.value = targetItem.quantity; }
+        });
+        return li;
+    }
+    
+    function createProductItemElement(productData) { /* ... (onStart en onEnd hieronder verplaatst) ... */
+        const li = document.createElement('li');
+        li.classList.add('product-item');
+        li.dataset.productId = productData.id;
+        li.innerHTML = `
+            <div class="item-content">
+                <span class="emoji">${productData.emoji || '🛒'}</span>
+                <span class="name">${productData.name}</span>
+            </div>
+            <span class="item-info-details">€${productData.pricePerPackage.toFixed(2)}/${productData.packageSize} - ${productData.caloriesPerUnit}kcal/${productData.unit}</span>`;
+        return li;
+    }
+
+    function renderProductLibrary() {
+        productSourceListElement.innerHTML = '';
+        appState.productDatabase.forEach(product => {
+            productSourceListElement.appendChild(createProductItemElement(product));
+        });
+        new Sortable(productSourceListElement, {
+            group: { name: 'sharedMeals', pull: 'clone', put: false },
+            animation: 150, sort: false, ghostClass: 'sortable-ghost', dragClass: 'sortable-drag',
+            onStart: function() { // Start van slepen product uit bibliotheek
+                document.body.classList.add('dragging');
+                appState.isDraggingProduct = true;
+                if (productLibraryPanel.classList.contains('open')) {
+                    productLibraryPanel.classList.add('dragging-item-active'); // Verberg paneel
+                }
+            },
+            onEnd: function() { // Einde van slepen product uit bibliotheek
+                document.body.classList.remove('dragging');
+                appState.isDraggingProduct = false;
+                // Paneel blijft verborgen, gebruiker opent het weer als nodig
+                // Of, als je wilt dat het terugkomt na een drop:
+                // setTimeout(() => productLibraryPanel.classList.remove('dragging-item-active'), 100);
+            }
+        });
+    }
+
+    function updateCalorieDisplayForDay(dayId) { /* ... (Prijs update toevoegen) ... */
+        const day = getDayById(dayId);
+        const dayScheduleElement = document.getElementById(dayId);
+        if (!day || !dayScheduleElement) return;
+        let dailyTotalCalories = 0; let dailyTotalPrice = 0;
+        Object.values(day.meals).flat().forEach(item => {
+            dailyTotalCalories += calculateItemCalories(item);
+            dailyTotalPrice += calculateItemPrice(item);
+        });
+        dayScheduleElement.querySelector('#currentDayTotalCalories').textContent = Math.round(dailyTotalCalories);
+        dayScheduleElement.querySelector('#currentDayTotalPrice').textContent = `€${dailyTotalPrice.toFixed(2)}`; // Update prijs
+        updateCalorieStatusIndicator(dailyTotalCalories, day.calorieGoal, dayScheduleElement.querySelector('#calorieStatusIndicator'));
+        Object.keys(day.meals).forEach(mealType => {
+            let mealTotalCalories = 0;
+            day.meals[mealType].forEach(item => mealTotalCalories += calculateItemCalories(item));
+            const mealSectionEl = dayScheduleElement.querySelector(`#${day.id}-${mealType}-list`).closest('.meal-section');
+            if(mealSectionEl) { mealSectionEl.querySelector('.meal-total-calories').textContent = `${Math.round(mealTotalCalories)} kcal`; }
+        });
+    }
+    function updateCalorieStatusIndicator(current, goal, indicatorElement) { /* ... (onveranderd) ... */
+        if (!indicatorElement) return; indicatorElement.className = 'calorie-status-indicator';
+        if (current > goal) { indicatorElement.classList.add('calories-over'); }
+        else if (current >= goal * 0.9) { indicatorElement.classList.add('calories-perfect'); }
+        else if (current >= goal * 0.75) { indicatorElement.classList.add('calories-warning'); }
+    }
+
+    // --- DRAG & DROP NAAR ANDERE DAG VIA NAV KNOPPEN (grotendeels onveranderd) ---
+    function handleMealItemDragStart(evt) { /* ... */ document.body.classList.add('dragging'); const mealItemEl = evt.item; appState.draggedMealItemData = { itemId: mealItemEl.dataset.mealInstanceId, sourceDayId: mealItemEl.closest('.meal-list').dataset.dayId, sourceMealType: mealItemEl.closest('.meal-list').dataset.mealType };}
+    function handleMealItemDragEnd(evt) { /* ... */ document.body.classList.remove('dragging'); appState.draggedMealItemData = null; if (appState.dragToDayTimeout) { clearTimeout(appState.dragToDayTimeout); appState.dragToDayTimeout = null; } document.querySelectorAll('.vertical-day-navigation button.day-drag-over').forEach(btn => btn.classList.remove('day-drag-over')); }
+    function handleDayNavDragEnter(e) { /* ... (target is nu .vertical-day-navigation button) ... */
+        const dayNavButton = e.target.closest('.vertical-day-navigation button');
+        if (dayNavButton && appState.draggedMealItemData) {
+            dayNavButton.classList.add('day-drag-over'); const targetDayId = dayNavButton.dataset.dayId;
+            if (appState.dragToDayTimeout) clearTimeout(appState.dragToDayTimeout);
+            if (targetDayId !== appState.currentDayId && targetDayId !== appState.draggedMealItemData.sourceDayId) {
+                appState.dragToDayTimeout = setTimeout(() => { if (dayNavButton.classList.contains('day-drag-over')) { appState.currentDayId = targetDayId; renderApp(); }}, 1500);
+            }
+        }
+    }
+    function handleDayNavDragLeave(e) { /* ... (target is nu .vertical-day-navigation button) ... */
+        const dayNavButton = e.target.closest('.vertical-day-navigation button');
+        if (dayNavButton) { dayNavButton.classList.remove('day-drag-over'); }
+        if (appState.dragToDayTimeout) { clearTimeout(appState.dragToDayTimeout); appState.dragToDayTimeout = null; }
+    }
+    function handleDayNavDrop(e) { /* ... (target is nu .vertical-day-navigation button) ... */
+        e.preventDefault(); const dayNavButton = e.target.closest('.vertical-day-navigation button');
+        if (dayNavButton && appState.draggedMealItemData) {
+            const targetDayId = dayNavButton.dataset.dayId; const { itemId, sourceDayId, sourceMealType } = appState.draggedMealItemData;
+            if (targetDayId === sourceDayId) { handleMealItemDragEnd(); return; }
+            const itemToMove = getDayById(sourceDayId).meals[sourceMealType].find(i => i.id === itemId);
+            if (itemToMove) {
+                getDayById(sourceDayId).meals[sourceMealType] = getDayById(sourceDayId).meals[sourceMealType].filter(i => i.id !== itemId);
+                const targetMeal = getDayById(targetDayId).meals[sourceMealType] ? sourceMealType : 'ontbijt';
+                getDayById(targetDayId).meals[targetMeal].push(itemToMove);
+                appState.currentDayId = targetDayId; renderApp(); saveData();
+            }
+        } handleMealItemDragEnd();
+    }
+
+    // --- DAY SETTINGS MODAL ---
+    function openDaySettingsModal(dayId) {
+        const day = getDayById(dayId);
+        if (!day) return;
+        daySettingsModalTitle.textContent = `Instellingen voor ${day.fullName}`;
+        modalCalorieGoalInput.value = day.calorieGoal;
+        daySettingsForm.dataset.currentEditingDayId = dayId; // Sla op welke dag we bewerken
+        daySettingsModal.classList.add('show');
+    }
+    closeDaySettingsModalBtn.addEventListener('click', () => daySettingsModal.classList.remove('show'));
+    daySettingsModal.addEventListener('click', (e) => { if (e.target === daySettingsModal) daySettingsModal.classList.remove('show'); });
+    daySettingsForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const dayId = e.target.dataset.currentEditingDayId;
+        const newGoal = parseInt(modalCalorieGoalInput.value, 10);
+        if (dayId && !isNaN(newGoal) && newGoal >= 0) {
+            getDayById(dayId).calorieGoal = newGoal;
+            renderApp(); // Update de view, inclusief de header van de dag
+            saveData();
+            daySettingsModal.classList.remove('show');
+        } else {
+            alert("Voer een geldig getal in voor het calorie doel.");
+        }
+    });
+
+
+    // --- EVENT LISTENERS VOOR PANEEL & PRODUCT MODAAL (grotendeels onveranderd) ---
+    toggleLibraryBtn.addEventListener('click', () => {
+        const isOpen = productLibraryPanel.classList.toggle('open');
+        toggleLibraryBtn.textContent = isOpen ? '✕' : '🛒';
+        if (!isOpen && appState.isDraggingProduct) { // Als gesloten terwijl product gesleept wordt
+            productLibraryPanel.classList.remove('dragging-item-active');
+        }
+    });
+    openAddProductModalBtn.addEventListener('click', () => addProductModal.classList.add('show'));
+    closeAddProductModalBtn.addEventListener('click', () => addProductModal.classList.remove('show'));
+    addProductModal.addEventListener('click', (e) => { if (e.target === addProductModal) addProductModal.classList.remove('show');});
+    addProductForm.addEventListener('submit', (e) => { /* ... (onveranderd) ... */
+        e.preventDefault(); const newProduct = { id: generateUniqueId('prod'), name: document.getElementById('newProductName').value.trim(), caloriesPerUnit: parseInt(document.getElementById('newProductCalories').value, 10), unit: document.getElementById('newProductUnit').value.trim(), pricePerPackage: parseFloat(document.getElementById('newProductPrice').value), packageSize: document.getElementById('newProductPackageSize').value.trim(), emoji: document.getElementById('newProductEmoji').value.trim() || '🆕' };
+        if (newProduct.name && !isNaN(newProduct.caloriesPerUnit) && newProduct.unit && !isNaN(newProduct.pricePerPackage) && newProduct.packageSize) { appState.productDatabase.push(newProduct); renderProductLibrary(); saveData(); addProductForm.reset(); addProductModal.classList.remove('show'); } else { alert('Vul alle verplichte velden correct in.'); }
+    });
+    resetDataBtn.addEventListener('click', () => { /* ... (onveranderd) ... */
+        if (confirm("Weet je zeker dat je alle data wilt resetten?")) {
+            appState.days.forEach(day => { day.calorieGoal = 2000; Object.keys(day.meals).forEach(mealType => day.meals[mealType] = []); });
+            appState.productDatabase = [ { id: 'prod1', name: 'AH Halfvolle kwark', caloriesPerUnit: 50, unit: '100g', pricePerPackage: 1.65, packageSize: '250g', emoji: '🥛' }, { id: 'prod2', name: 'Banaan', caloriesPerUnit: 90, unit: 'stuk', pricePerPackage: 0.30, packageSize: '1stuk', emoji: '🍌' }, /* ...etc */ ];
+            appState.currentDayId = 'dag1'; renderApp(); renderProductLibrary(); saveData();
+            productLibraryPanel.classList.remove('open'); toggleLibraryBtn.textContent = '🛒';
+        }
+    });
+
+    // --- ALGEMENE RENDER FUNCTIE ---
+    function renderApp() {
+        renderDayNavigation();
+        mainContentContainer.innerHTML = '';
+        const currentDayData = getDayById(appState.currentDayId);
+        if (currentDayData) {
+            renderDaySchedule(currentDayData);
+        }
+    }
+
+    // --- INITIALISATIE ---
+    loadData();
+    renderApp();
+    renderProductLibrary();
+
+</script>
+</body>
+</html>
